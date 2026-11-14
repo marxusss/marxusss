@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="324" height="72" viewBox="0 0 324 72">
+  <defs>
+    <linearGradient id="aero" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8ffff"/><stop offset=".38" stop-color="#dffaff"/><stop offset=".76" stop-color="#b8eff1"/><stop offset="1" stop-color="#a9e8cf"/></linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <radialGradient id="bubble" cx=".32" cy=".24" r=".82"><stop offset="0" stop-color="#fff" stop-opacity=".88"/><stop offset=".42" stop-color="#9ff0ff" stop-opacity=".35"/><stop offset="1" stop-color="#46b9dc" stop-opacity=".08"/></radialGradient>
+    <filter id="soft-shadow" x="-18%" y="-30%" width="136%" height="175%"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#217b99" flood-opacity=".23"/></filter>
+  </defs>
+  <rect x="4" y="4" width="316" height="64" rx="22" fill="url(#aero)" stroke="#72c9d7" stroke-width="2" filter="url(#soft-shadow)"/>
+  <path d="M25 6h274c11 0 19 6 19 17H6C6 12 14 6 25 6Z" fill="url(#shine)"/>
+  <circle cx="38" cy="36" r="17" fill="#1687a6"/>
+  <path d="M28 30h20v13H28z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m29 31 9 7 9-7" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="67" y="41" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#145477">max@vorwaller.net</text>
+  <circle cx="297" cy="28" r="7" fill="url(#bubble)" stroke="#fff" stroke-opacity=".9" stroke-width="1.4"/>
+  <circle cx="307" cy="43" r="4" fill="url(#bubble)" stroke="#fff" stroke-opacity=".8" stroke-width="1"/>
+  <circle cx="285" cy="19" r="2.1" fill="#fff" fill-opacity=".9"/>
+</svg>
