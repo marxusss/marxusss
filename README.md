@@ -1,1 +1,2 @@
+WIP (click on the icons! they are links)
 <p align="center"><a href="mailto:max@vorwaller.net"><img src="./assets/contact-email.png" width="50%" alt="email max@vorwaller.net" /></a><a href="https://www.linkedin.com/in/max-vorwaller-724418259/"><img src="./assets/contact-linkedin.png" width="50%" alt="linkedin profile" /></a></p>
