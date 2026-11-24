@@ -44,6 +44,13 @@ def eligible(r):
             and r["name"].lower() != OWNER
             and (r["name"].lower() == FEATURED or r["created_at"] > CUTOFF))
 
+def contribution_count():
+    page, _ = get(f"https://github.com/users/{OWNER}/contributions")
+    m = re.search(r'([\d,]+)\s+contributions?\s+in the (?:last|past) year', page.decode(), re.I)
+    if not m:
+        raise ValueError("GitHub public contribution-calendar total not found")
+    return int(m.group(1).replace(",", ""))
+
 def fetch_stats():
     repos = []
     for n in range(1, 101):
@@ -62,6 +69,7 @@ def fetch_stats():
         "repos": [{"name": r["name"], "url": r["html_url"],
                    "updated": r["pushed_at"][:10]} for r in repos],
         "commits": commits,
+        "contributions": contribution_count(),
         "stars": sum(r["stargazers_count"] for r in repos),
         "count": len(repos),
     }
@@ -122,6 +130,11 @@ def render(source, stats):
             assert not errors, errors
             assert page.evaluate("[...document.images].every(i=>i.complete&&i.naturalWidth>0)")
             page.evaluate("frame(10)")
+            assert page.evaluate("document.querySelectorAll('.tm-stats span').length") == 4
+            assert page.evaluate("[...document.querySelectorAll('.tm-stats span')].every(x=>x.scrollWidth<=x.clientWidth)")
+            assert page.evaluate("document.querySelector('#profile').innerText.split('Max Vorwaller').length - 1") == 2
+            assert page.evaluate("document.querySelector('#profile .details h2').textContent") == "Software Engineer · Seattle, WA"
+            page.screenshot(path=str(tmp/"final-review.png"))
             targets = page.evaluate("""[...document.querySelectorAll('#repo-desktop [data-profile-link], #profile [data-profile-link]')].map(a=>{let r=a.getBoundingClientRect();return {coords:[Math.floor(r.x),Math.floor(r.y),Math.ceil(r.right),Math.ceil(r.bottom)],href:a.href,label:a.textContent.trim()}})""")
             assert len(targets) == 2 + 2*min(4, len(stats["repos"])), targets
             last = None
