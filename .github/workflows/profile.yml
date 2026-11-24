@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install rendering tools
-        run: python3 -m pip install --target "$RUNNER_TEMP/profile-deps" 'Pillow==12.1.1' 'playwright==1.58.0' --quiet
+        run: python3 -m pip install --target "$RUNNER_TEMP/profile-deps" 'Pillow==12.1.1' 'playwright==1.58.0' 'imageio-ffmpeg==0.6.0' --quiet
       - name: Refresh desktop and public statistics
         run: |
           export PYTHONPATH="$RUNNER_TEMP/profile-deps"
@@ -31,6 +31,10 @@ jobs:
       - name: Verify README links
         run: |
           gh api markdown -f text="$(cat README.md)" -f mode=gfm -f context=marxusss/marxusss > "$RUNNER_TEMP/profile-markdown.html"
+          test "$(grep -o '<img ' "$RUNNER_TEMP/profile-markdown.html" | wc -l)" -eq 1
+          gh api markdown -f mode=gfm -f context=marxusss/marxusss -f text='<img src="./assets/windows7/desktop.gif" usemap="#contacts"><map name="contacts"><area shape="rect" coords="320,528,380,560" href="mailto:max@vorwaller.net" alt="Email"></map>' > "$RUNNER_TEMP/map-probe.html"
+          echo "GitHub image map sanitization result:"
+          cat "$RUNNER_TEMP/map-probe.html"
           grep -F 'mailto:max@vorwaller.net' "$RUNNER_TEMP/profile-markdown.html"
           grep -F 'https://www.linkedin.com/in/max-vorwaller-724418259/' "$RUNNER_TEMP/profile-markdown.html"
           if grep -q '"name": "reality-restyler"' profile/stats.json; then
