@@ -89,39 +89,6 @@ def build_html(source, stats):
                     lambda _: json.dumps(extra), source, count=1, flags=re.S)
     return source.replace("<script>", "<script>window.__renderMode=true;", 1)
 
-def partitions(targets):
-    # Merge vertically overlapping link bands; do not put a seam through a link.
-    # Each row uses adjacent img elements, so no image maps or CSS are required.
-    bands = []
-    for target in sorted(targets, key=lambda r:r["y0"]):
-        if bands and target["y0"] < bands[-1][1]:
-            bands[-1][1] = max(bands[-1][1], target["y1"])
-            bands[-1][2].append(target)
-        else:
-            bands.append([target["y0"], target["y1"], [target]])
-    rows = []
-    y = 0
-    for top, bottom, items in bands:
-        if y < top:
-            rows.append([(0,y,WIDTH,top,None)])
-        row, x = [], 0
-        for r in sorted(items,key=lambda r:r["x0"]):
-            if r["x0"] < x:
-                # Adjacent desktop entries can land in the same merged band for
-                # long labels. Reject overlapping clickable regions, never mislink.
-                raise ValueError("Overlapping link rectangles: " + str(items))
-            if r["x0"] > x:
-                row.append((x,top,r["x0"],bottom,None))
-            row.append((r["x0"],top,r["x1"],bottom,r))
-            x = r["x1"]
-        if x < WIDTH:
-            row.append((x,top,WIDTH,bottom,None))
-        rows.append(row)
-        y = bottom
-    if y < HEIGHT:
-        rows.append([(0,y,WIDTH,HEIGHT,None)])
-    return rows
-
 def frame_key(i):
     t = i/FPS
     if t < 1: return 0
@@ -139,104 +106,61 @@ def frame_key(i):
     return 264
 
 def render(source, stats):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"])
-        page = browser.new_page(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
-        errors = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
-        page.set_content(source, wait_until="load")
-        page.evaluate("Promise.all([...document.images].map(i=>i.decode()))")
-        assert not errors, errors
-        assert page.evaluate("[...document.images].every(i=>i.complete&&i.naturalWidth>0)")
-        page.evaluate("frame(10)")
-        targets = page.evaluate("""[...document.querySelectorAll('#repo-desktop [data-profile-link], #profile [data-profile-link]')].map(a=>{
-          let r=a.getBoundingClientRect();
-          return {x0:Math.floor(r.x/4)*4, x1:Math.ceil((r.right)/4)*4,
-                  y0:Math.floor(r.y/4)*4,y1:Math.ceil(r.bottom/4)*4,
-                  href:a.href,label:a.textContent.trim()}
-        })""")
-        assert len(targets) == 2 + 2*min(4, len(stats["repos"])), targets
-        assert any(t["href"] == "mailto:max@vorwaller.net" for t in targets)
-        assert any("linkedin.com/in/max-vorwaller-724418259" in t["href"] for t in targets)
-        assert page.evaluate("document.querySelector('.tm-stats').innerText").startswith("Commits:")
-        assert page.evaluate("document.querySelector('.weather-gadget').getBoundingClientRect().width") == 230
-        # If several desktop rows and favorite rows overlap in y, use an exact
-        # planar partition instead of growing clickable rectangles into each other.
-        # All rectangles are rounded outward to 4px. Equal-y neighboring links
-        # share a single row; non-overlapping intervals are split at their edges.
-        yedges=sorted({0,HEIGHT,*[r[k] for r in targets for k in ("y0","y1")]})
-        rows=[]
-        for y0,y1 in zip(yedges,yedges[1:]):
-            active=[r for r in targets if r["y0"]<=y0 and r["y1"]>=y1]
-            row=[]; x=0
-            for r in sorted(active,key=lambda r:r["x0"]):
-                assert r["x0"]>=x, active
-                if r["x0"]>x: row.append((x,y0,r["x0"],y1,None))
-                row.append((r["x0"],y0,r["x1"],y1,r)); x=r["x1"]
-            if x<WIDTH: row.append((x,y0,WIDTH,y1,None))
-            rows.append(row)
-        # Simplify the present one-repo layout: merge overlapping vertical bands
-        # when the horizontal links do not collide.
-        try:
-            rows=partitions(targets)
-        except ValueError:
-            pass
-        # The original scene and animation remain intact. Capture a full frame
-        # for each distinct animation instant, then partition the same pixels.
-        slices=[{"rect":r[:4],"link":r[4],"frames":[],"durations":[],"last":None}
-                for row in rows for r in row]
-        last_key=None
-        for i in range(FPS*SECONDS):
-            key=frame_key(i)
-            if key!=last_key:
-                page.evaluate("t=>frame(t)",key/FPS)
-                scene=Image.open(io.BytesIO(page.screenshot())).convert("RGB")
-                last_key=key
-            ms=round((i+1)*1000/FPS)-round(i*1000/FPS)
-            for item in slices:
-                if not item["frames"] or item.get("key")!=key:
-                    crop=scene.crop(item["rect"])
-                    digest=hashlib.sha256(crop.tobytes()).digest()
-                    item["key"]=key
-                    if digest!=item["last"]:
-                        item["frames"].append(crop)
-                        item["durations"].append(0)
-                        item["last"]=digest
-                item["durations"][-1]+=ms
-        assert not errors, errors
-        browser.close()
+    import subprocess
+    import tempfile
+    import imageio_ffmpeg
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob("*.png"):
-        old.unlink()
-    lines=[]
-    idx=0
-    for row in rows:
-        parts=[]
-        for r in row:
-            item=slices[idx]
-            path=OUT/f"tile-{idx:02d}.png"
-            imgs=item["frames"]
-            ds=item["durations"]
-            assert sum(ds)==SECONDS*1000
-            if len(imgs)==1:
-                imgs[0].save(path,compress_level=7)
-            else:
-                imgs[0].save(path,save_all=True,append_images=imgs[1:],duration=ds,
-                             loop=1,disposal=0,blend=0,compress_level=6)
-                with Image.open(path) as im:
-                    assert im.info["loop"]==1
-                    assert sum((im.seek(i),im.info["duration"])[1] for i in range(im.n_frames))==SECONDS*1000
-            assert path.stat().st_size<10*1024*1024, f"Large tile: {path}"
-            label=item["link"]["label"] if item["link"] else ("Max Vorwaller – Software Engineer, Seattle; animated Windows 7 desktop" if idx==0 else "")
-            w=(r[2]-r[0])*100/WIDTH
-            img=f'<img src="./assets/windows7/{path.name}" width="{w}%" alt="{markup.escape(label,quote=True)}">'
-            if item["link"]:
-                img=f'<a href="{markup.escape(item["link"]["href"],quote=True)}">{img}</a>'
-            parts.append(img);idx+=1
-        lines.append("".join(parts))
-    readme='<!-- Generated by profile/render.py; Task Manager counts eligible public repositories, their stars and the owner\'s default-branch commits. -->\n<p align="center">'+ "<br>\n".join(lines)+"</p>\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"])
+            page = browser.new_page(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.set_content(source, wait_until="load")
+            page.evaluate("Promise.all([...document.images].map(i=>i.decode()))")
+            assert not errors, errors
+            assert page.evaluate("[...document.images].every(i=>i.complete&&i.naturalWidth>0)")
+            page.evaluate("frame(10)")
+            targets = page.evaluate("""[...document.querySelectorAll('#repo-desktop [data-profile-link], #profile [data-profile-link]')].map(a=>{let r=a.getBoundingClientRect();return {coords:[Math.floor(r.x),Math.floor(r.y),Math.ceil(r.right),Math.ceil(r.bottom)],href:a.href,label:a.textContent.trim()}})""")
+            assert len(targets) == 2 + 2*min(4, len(stats["repos"])), targets
+            last = None
+            for i in range(FPS*SECONDS):
+                key = frame_key(i)
+                path = tmp/f"frame-{i:04d}.png"
+                if key!=last:
+                    page.evaluate("t=>frame(t)",key/FPS)
+                    page.screenshot(path=str(path))
+                    prev=path
+                    last=key
+                else:
+                    os.link(prev,path)
+            assert not errors, errors
+            browser.close()
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        inp = ["-framerate",str(FPS),"-i",str(tmp/"frame-%04d.png")]
+        def run(args):
+            subprocess.run([ff,"-hide_banner","-loglevel","error","-y",*args],check=True)
+        palette = tmp/"palette.png"
+        run([*inp,"-vf","palettegen=stats_mode=full","-frames:v","1",str(palette)])
+        gif = OUT/"desktop.gif"
+        run([*inp,"-i",str(palette),"-lavfi","paletteuse=dither=sierra2_4a:diff_mode=rectangle","-loop","-1","-gifflags","+transdiff",str(gif)])
+        with Image.open(gif) as im:
+            assert im.size == (WIDTH,HEIGHT)
+            assert im.n_frames > 100
+            assert "loop" not in im.info, im.info
+            duration=sum((im.seek(i),im.info["duration"])[1] for i in range(im.n_frames))
+            assert abs(duration-SECONDS*1000)<100, duration
+        assert gif.stat().st_size<10*1024*1024, gif.stat().st_size
+        for old in OUT.glob("tile-*.png"):
+            old.unlink()
+    links = {}
+    for target in targets:
+        links[target["href"]] = target["label"]
+    anchors = " &nbsp;·&nbsp; ".join(f'<a href="{markup.escape(url,quote=True)}">{markup.escape(label)}</a>' for url,label in reversed(list(links.items())))
+    readme = '<!-- Generated by profile/render.py -->\n<p align="center"><img src="./assets/windows7/desktop.gif" width="100%" alt="Max Vorwaller – Software Engineer, Seattle; animated Windows 7 desktop"></p>\n<p align="center">'+anchors+'</p>\n'
     (ROOT/"README.md").write_text(readme,encoding="utf-8")
-    print(f"Rendered {idx} tiles; {sum(x.stat().st_size for x in OUT.glob('*.png')):,} bytes; links: {[(t['label'],t['href']) for t in targets]}")
+    print(f"Verified single non-looping GIF: {gif.stat().st_size:,} bytes, {duration} ms")
 
 def main():
     stats = fetch_stats()
@@ -244,7 +168,7 @@ def main():
     state = ROOT/"profile"/"stats.json"
     source_hash=hashlib.sha256(Path(__file__).read_bytes()+source.encode()).hexdigest()
     snapshot={"source_hash":source_hash,**stats}
-    if state.exists() and json.loads(state.read_text())==snapshot and list(OUT.glob("*.png")):
+    if state.exists() and json.loads(state.read_text())==snapshot and (OUT/"desktop.gif").is_file():
         print("No public project or statistics changes.")
         return
     print(json.dumps(stats))
