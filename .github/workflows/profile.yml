@@ -4,7 +4,7 @@ on:
     - cron: "17 9 * * *"
   workflow_dispatch:
   push:
-    branches: [chatgpt/windows7-profile]
+    branches: [chatgpt/profile-final-polish, main]
     paths:
       - 'profile/desktop.html'
       - 'profile/render.py'
